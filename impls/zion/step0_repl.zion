@@ -1,0 +1,15 @@
+import readline {readline}
+
+# print and read are already hogging the top-level namespace. for now there is
+# no way to avoid it.
+
+fn _read(x) => x
+fn _eval(x) => x
+fn _print(x) => x
+fn rep(x) => x._read._eval._print
+
+fn main() {
+  while "user> ".readline is Just(input) {
+    print(rep(input))
+  }
+}

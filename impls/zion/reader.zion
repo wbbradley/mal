@@ -1,0 +1,131 @@
+import parser {
+  all_of_input, parse_string, many, Span, ParseState, lift, char, text, const,
+  sequence, Progress, OK, Fail, skip_while, span_concat, non_empty,
+  until_one_of, choice, dot_star, digits, span_text}
+import json {quoted_string}
+import types {
+  MalBool, MalNil, MalValue, MalInt, MalFloat, MalString, MalSymbol, MalList,
+  MalError, MalEOF, MalStop}
+
+let comma_or_space = |x| => x == ',' or isspace(x)
+fn skip_leading(ps ParseState) ParseState {
+  return skip_while(ps, comma_or_space)
+}
+
+fn skip_space_or_comma_then(parser) {
+  return |ps| => parser(skip_leading(ps))
+}
+
+let comment_eol = lift(span_concat, sequence([char(';'), dot_star]))
+let quasi_at = text("~@", False /*skip_leading_space*/)
+
+fn special(ps ParseState) Progress ParseState Span {
+  let ParseState(content, index) = ps
+  if index < len(content) and content[index] in "[]{}()'`~^@" {
+    return OK(ParseState(content, index + 1),
+              Span(str(content[index]), index))
+  } else {
+    return Fail
+  }
+}
+let non_special = non_empty(until_one_of(" \r\n\t[]{}('\"`,;)"))
+let tokenizer = many(skip_space_or_comma_then(choice([
+  quasi_at,
+  special,
+  quoted_string,
+  comment_eol,
+  non_special,
+])))
+
+newtype Reader = Reader([Span], var Int)
+
+fn next(r) Maybe Span {
+  let Reader(spans, var pos) = r
+  if pos >= len(spans) {
+    return Nothing
+  } else {
+    let cur_pos = pos
+    pos += 1
+    return Just(spans[cur_pos])
+  }
+}
+
+fn peek(r) Maybe Span {
+  let Reader(spans, var pos) = r
+  if pos >= len(spans) {
+    return Nothing
+  } else {
+    return Just(spans[pos])
+  }
+}
+
+fn read_str(s String) Either MalStop MalValue {
+  if tokenizer.parse_string(s) is Just(spans) {
+    return read_form_from_spans(spans)
+  } else {
+    return Left(MalError("Could not find any tokens."))
+  }
+}
+
+fn read_form_from_spans(spans) {
+  assert(len(spans) > 0)
+  return Reader(spans, new).read_form
+}
+
+fn is_rparen(reader) Bool { 
+  if reader.peek is Just(Span(text, _)) {
+    if text == ")" {
+      reader.next!
+      return True
+    }
+  }
+  return False
+}
+
+fn read_form(reader) Either MalStop MalValue { 
+  if reader.peek is Just(Span(text, _)) {
+    assert(len(text) > 0)
+    return match text[0] {
+      '(' => reader.read_list
+      _   => reader.read_atom
+    }
+  }
+  return Left(MalError("WAT happened?"))
+}
+
+let mal_atom_parser = all_of_input(choice([
+  lift(|x| => MalInt(int(str(x))), digits),
+  lift(const(MalNil), text("nil", False)),
+  lift(const(MalBool(True)), text("true", False)),
+  lift(const(MalBool(False)), text("false", False)),
+  lift(|x| => MalSymbol(str(x)), until_one_of("")),
+]))
+
+fn read_atom(reader) Either MalStop MalValue {
+  return match reader.next {
+    Just(span) => match mal_atom_parser.parse_string(span.span_text) {
+      Just(mv) => Right(mv)
+      Nothing  => Left(MalError("Unable to parse atom ${span.span_text}"))
+    }
+    Nothing    => Left(MalError("Not yet impl."))
+  }
+}
+
+fn read_list(reader) Either MalStop MalValue {
+  reader.next!
+  let result = []
+  while not reader.is_rparen {
+    match reader.read_form {
+      Left(MalEOF) {
+        return Left(MalError("Premature end of input while reading list."))
+      }
+      l@Left(_) => return l
+      Right(value) => result.append(value)
+    }
+  }
+  return Right(MalList(result))
+}
+
+fn main() {
+  print(read_str("(hey this is 900 'cool nil true false)"))
+}

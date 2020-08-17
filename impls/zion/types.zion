@@ -1,0 +1,33 @@
+data MalValue {
+  MalInt(Int)
+  MalNil
+  MalBool(Bool)
+  MalFloat(Float)
+  MalString(String)
+  MalSymbol(String)
+  MalList([MalValue])
+}
+
+instance Str MalValue {
+  fn str(m) => match m {
+    MalInt(i) => "MalInt(${i})"
+    MalNil => "MalNil"
+    MalBool(b) => "MalBool(${b ? "True" : "False"})"
+    MalFloat(f) => "MalFloat(${f})"
+    MalString(s) => "MalString(${s})"
+    MalSymbol(s) => "MalSymbol(${s})"
+    MalList(l) => "MalList(${l})"
+  }
+}
+
+data MalStop {
+  MalEOF
+  MalError(String)
+}
+
+instance Str MalStop {
+  fn str(m) => match m {
+    MalError(e) => "MalError(${e})"
+    MalEOF      => "MalEOF"
+  }
+}

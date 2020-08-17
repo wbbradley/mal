@@ -1,0 +1,17 @@
+import types {
+  MalBool, MalNil, MalValue, MalInt, MalFloat, MalString, MalSymbol, MalList,
+  MalError, MalEOF, MalStop}
+
+fn pr_str(m MalValue) String => match m {
+  MalInt(i) => "${i}"
+  MalNil => "nil"
+  MalBool(b) => b ? "true" : "false"
+  MalFloat(f) => "${f}"
+  MalString(s) => escape_quotes(s)
+  MalSymbol(s) => s
+  MalList(ls) => "(${" ".join(l.pr_str for l in ls)})"
+}
+
+fn escape_quotes(s) {
+  return "\"${s.replace("\"", "\\\"")}\""
+}

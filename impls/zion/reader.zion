@@ -1,11 +1,18 @@
 import parser {
   all_of_input, parse_string, many, Span, ParseState, lift, char, text, const,
   sequence, Progress, OK, Fail, skip_while, span_concat, non_empty,
-  until_one_of, choice, dot_star, digits, span_text}
-import json {quoted_string}
+  until_one_of, choice, dot_star, digits, span_text, not_char}
+import printer {pr_str}
 import types {
   MalBool, MalNil, MalValue, MalInt, MalFloat, MalString, MalSymbol, MalList,
   MalError, MalEOF, MalStop}
+
+let escaped_quote = text("\\\"", False)
+let quoted_string = lift(span_concat, sequence([
+  char('"'),
+  lift(span_concat, many(choice([escaped_quote, not_char('"')]))),
+  char('"'),
+]))
 
 let comma_or_space = |x| => x == ',' or isspace(x)
 fn skip_leading(ps ParseState) ParseState {
@@ -29,13 +36,13 @@ fn special(ps ParseState) Progress ParseState Span {
   }
 }
 let non_special = non_empty(until_one_of(" \r\n\t[]{}('\"`,;)"))
-let tokenizer = many(skip_space_or_comma_then(choice([
+let tokenizer = non_empty(many(non_empty(skip_space_or_comma_then(choice([
   quasi_at,
   special,
   quoted_string,
   comment_eol,
   non_special,
-])))
+])))))
 
 newtype Reader = Reader([Span], var Int)
 
@@ -93,11 +100,19 @@ fn read_form(reader) Either MalStop MalValue {
   return Left(MalError("WAT happened?"))
 }
 
-let mal_atom_parser = all_of_input(choice([
+fn unescape_quoted_span(span Span) String {
+  let s = str(span)
+  assert(s[0] == '"')
+  assert(s[len(s)-1] == '"')
+  return s[1:len(s)-1].replace("\\\"", "\"")
+}
+
+let mal_atom_parser =all_of_input(choice([
   lift(|x| => MalInt(int(str(x))), digits),
   lift(const(MalNil), text("nil", False)),
   lift(const(MalBool(True)), text("true", False)),
   lift(const(MalBool(False)), text("false", False)),
+  lift(compose(MalString,unescape_quoted_span), quoted_string),
   lift(|x| => MalSymbol(str(x)), until_one_of("")),
 ]))
 
@@ -127,5 +142,6 @@ fn read_list(reader) Either MalStop MalValue {
 }
 
 fn main() {
-  print(read_str("(hey this is 900 'cool nil true false)"))
+  print(compose(pr_str, compose(MalString, str)).fmap(quoted_string.parse_string("\"h\\\"ey\"")))
+  print(read_str("(hey this is 900 'cool nil \"this \\\"is\\\" working\" true false)"))
 }

@@ -1,0 +1,30 @@
+import readline {readline}
+import reader {read_str}
+import printer {pr_str}
+import types {MalStop, MalValue, MalEOF}
+
+fn _read(x String) Either MalStop MalValue => x.read_str
+fn _eval(x MalValue) Either MalStop MalValue => Right(x)
+fn _print(x MalValue) String => x.pr_str
+fn rep(x String) Either MalStop String {
+  let form = _read(x)
+  match form {
+    Left(error) => return Left(error)
+    Right(mv) {
+      let either_evaluated = _eval(mv)
+      return match either_evaluated {
+        l@Left(error) => Left(error)
+        Right(evaluated) => Right(_print(evaluated))
+      }
+    }
+  }
+}
+
+fn main() {
+  while "user> ".readline is Just(input) {
+    match rep(input) {
+      Left(error) => print(error)
+      Right(mv_str) => print(mv_str)
+    }
+  }
+}

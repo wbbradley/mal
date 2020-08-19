@@ -16,6 +16,8 @@ package-lock.json
 */experiments
 node_modules
 */notes
+*.png
+*.dot
 
 logs
 old

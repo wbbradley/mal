@@ -3,22 +3,26 @@ data MalValue {
   MalNil
   MalBool(Bool)
   MalFloat(Float)
+  MalKeyword(String)
   MalString(String)
   MalSymbol(String)
   MalList([MalValue])
   MalVector([MalValue])
+  MalDict(Map String MalValue)
 }
 
 instance Str MalValue {
   fn str(m) => match m {
     MalInt(i) => "MalInt(${i})"
     MalNil => "MalNil"
-    MalBool(b) => "MalBool(${b ? "True" : "False"})"
+    MalBool(b) => "MalBool(${b ? "true" : "false"})"
     MalFloat(f) => "MalFloat(${f})"
+    MalKeyword(k) => "MalKeyword(${k})"
     MalString(s) => "MalString(${s})"
     MalSymbol(s) => "MalSymbol(${s})"
     MalList(l) => "MalList(${l})"
     MalVector(v) => "MalVector(${v})"
+    MalDict(dict) => "MalDict(${dict})"
   }
 }
 

@@ -1,17 +1,22 @@
 import parser {
   all_of_input, parse_string, many, Span, ParseState, lift, char, text, const,
   sequence, Progress, OK, Fail, skip_while, span_concat, non_empty, many1,
-  within_quotes, skip_trailing, until_one_of, choice, dot_star, digits,
-  span_text, not_char}
+  signed_int, within_quotes, skip_leading, until_one_of, choice, dot_star,
+  digits, span_text, not_char}
 import printer {pr_str}
 import types {
   MalBool, MalNil, MalValue, MalInt, MalFloat, MalString, MalSymbol, MalList,
-  MalVector, MalError, MalEOF, MalStop}
+  MalKeyword, MalVector, MalDict, MalError, MalEOF, MalStop}
+import itertools {take_pairs}
 
 data Token {
+  TInteger(Int)
+  TKeyword(String)
   TSpecial(Char)
   TQuote(String)
+  TDeref
   TQuasiAt
+  TWithMeta
   TComment(String)
   TNonSpecial(String)
   TUnbalanced(String)
@@ -19,9 +24,13 @@ data Token {
 
 instance Str Token {
   fn str(t) => match t {
+    TInteger(i)     => "TInteger('${i}')"
+    TKeyword(k)     => "TKeyword('${k}')"
     TSpecial(ch)    => "TSpecial('${ch}')"
+    TDeref          => "TDeref"
     TQuote(q)       => "TQuote(${q})"
     TQuasiAt        => "TQuasiAt"
+    TWithMeta       => "TWithMeta"
     TComment(c)     => "TComment(${c})"
     TNonSpecial(ns) => "TNonSpecial(${ns})"
     TUnbalanced(c)  => "TUnbalanced(${c})"
@@ -46,20 +55,22 @@ let quoted_string = lift(either_quotes, within_quotes(
     ])))) as fn (ParseState) Progress ParseState Token
 
 let comma_or_space = |x| => x == ',' or isspace(x)
-fn skip_leading(ps ParseState) ParseState {
+fn skip_delimiters(ps ParseState) ParseState {
   return skip_while(ps, comma_or_space)
 }
 
-let skip_space_before = |parser| => |ps| => parser(skip_leading(ps))
+let skip_space_before = |parser| => |ps| => parser(skip_delimiters(ps))
 fn skip_space_after(parser) {
   return |ps| => match parser(ps) {
-    OK(ps, content) => OK(skip_leading(ps), content)
+    OK(ps, content) => OK(skip_delimiters(ps), content)
     Fail => Fail
   }
 }
 
 let comment_eol = lift(compose(TComment, compose(str, span_concat)), sequence([char(';'), dot_star]))
 let quasi_at = lift(const(TQuasiAt), text("~@", False /*skip_leading_space*/))
+let with_meta = lift(const(TWithMeta), text("^", False /*skip_leading_space*/))
+let deref = lift(const(TDeref), text("@", False /*skip_leading_space*/))
 
 fn special(ps ParseState) Progress ParseState Token {
   let ParseState(content, index) = ps
@@ -70,14 +81,20 @@ fn special(ps ParseState) Progress ParseState Token {
   }
 }
 
-let non_special = lift(.str.TNonSpecial, non_empty(until_one_of(" \r\n\t[]{}('\"`,;)")))
+let keyword = lift(.str.TKeyword, skip_leading(':', non_empty(non_special_chars)))
+let non_special_chars = until_one_of(" \r\n\t[]{}('\"`,;)")
+let non_special = lift(.str.TNonSpecial, non_empty(non_special_chars))
 let tokenizer = all_of_input(
     skip_space_before(many1(
         skip_space_after(choice([
+          lift(TInteger, signed_int),
+          deref,
           quasi_at,
+          with_meta,
           special,
           quoted_string,
           comment_eol,
+          keyword,
           non_special,
         ]))))) as fn (ps) Progress ParseState [Token]
 
@@ -128,25 +145,63 @@ fn is_token(reader, symbol) Bool {
 
 let is_rparen = |r| => r.is_token(')')
 let is_rsquare = |r| => r.is_token(']')
+let is_rcurly = |r| => r.is_token('}')
 
-fn read_quoted_list(reader, kind) => match reader.read_form {
+fn read_quoted(reader, kind) => match reader.read_form {
   Right(form)   => Right(MalList([MalSymbol(kind), form]))
   error@Left(_) => error
 }
 
-fn read_form(reader) Either MalStop MalValue { 
-  while match reader.next {
-    Just(TSpecial('('))  => return reader.read_list(MalList, is_rparen)
-    Just(TSpecial('['))  => return reader.read_list(MalVector, is_rsquare)
-    Just(TComment(_))    => continue
-    Just(TSpecial('\'')) => return reader.read_quoted_list("quote")
-    Just(TSpecial('`'))  => return reader.read_quoted_list("quasiquote")
-    Just(TSpecial('~'))  => return reader.read_quoted_list("unquote")
-    Just(TQuasiAt)       => return reader.read_quoted_list("splice-unquote")
-    Just(token)          => return token.read_atom
-    Nothing              => return Left(MalError("end of input encountered"))
+fn read_with_meta(reader) => match reader.read_form {
+  Right(meta_data) => match reader.read_form {
+    Right(form) => Right(MalList([MalSymbol("with-meta"), form, meta_data]))
+    left => left
   }
-  return Left(MalError("Not Reached"))
+  left => left
+}
+
+fn mkdict(values) {
+  if len(values) % 2 != 0 {
+    return Left(MalError("Found an odd number of atoms in a hashmap!"))
+  }
+  let dict = {}
+  for (key, value) in values.take_pairs {
+    match key {
+      MalKeyword(k) => dict["k|${k}"] = value
+      MalString(s) => dict["z|${s}"] = value
+      MalInt(s) => dict["i|${s}"] = value
+      MalNil => dict["nil"] = value
+      _ => return Left(MalError("Hashmaps only accept keywords, integers, and strings as keys. (Got ${key})"))
+    }
+  }
+  return Right(MalDict(dict))
+}
+
+fn read_form(reader) Either MalStop MalValue { 
+  while reader.next is Just(token) {
+    if token is TComment(_) {
+      continue
+    }
+    return match token {
+      TInteger(i)      => MalInt(i).Right
+      TKeyword(kwd)    => MalKeyword(":${kwd}").Right
+      TDeref           => reader.read_quoted("deref")
+      TQuasiAt         => reader.read_quoted("splice-unquote")
+      TWithMeta        => reader.read_with_meta
+      TQuote(s)        => Right(MalString(s))
+      TSpecial('(')    => reader.read_list(.MalList.Right, is_rparen)
+      TSpecial('[')    => reader.read_list(.MalVector.Right, is_rsquare)
+      TSpecial('\'')   => reader.read_quoted("quote")
+      TSpecial('`')    => reader.read_quoted("quasiquote")
+      TSpecial('{')    => reader.read_list(mkdict, is_rcurly)
+      TSpecial('~')    => reader.read_quoted("unquote")
+      TSpecial(sp)     => Left(MalError("Unrecognized special token: ${sp}"))
+      TUnbalanced(u)   => Left(MalError("unbalanced token encountered: ${u}"))
+      TComment(_)      => Left(MalError("Not reached"))
+      TNonSpecial(sym) => read_atom(sym)
+    }
+  }
+  return Left(MalError("end of input encountered"))
 }
 
 fn unescape_quoted_span(span Span) String {
@@ -156,23 +211,15 @@ fn unescape_quoted_span(span Span) String {
   return s[1:len(s)-1].replace("\\\\", "\\").replace("\\\"", "\"")
 }
 
-let mal_atom_parser = all_of_input(choice([
-  lift(|x| => MalInt(int(str(x))), digits),
-  lift(const(MalNil), text("nil", False)),
-  lift(const(MalBool(True)), text("true", False)),
-  lift(const(MalBool(False)), text("false", False)),
-  lift(compose(MalString, |s [Span]| => str(s[1])), sequence([char('"'), dot_star])),
-  lift(|x| => MalSymbol(str(x)), until_one_of("")),
-]))
-
-fn read_atom(token Token) Either MalStop MalValue {
-  return match token {
-    TSpecial(ch) => Right(MalSymbol(str(ch)))
-    TQuote(s)    => Right(MalString(s))
-    TQuasiAt     => Right(MalSymbol("~@"))
-    TComment(c)  => Left(MalError("Unexpected comment ${c}"))
-    TNonSpecial(ident) => Right(MalSymbol(ident))
-    TUnbalanced(u) => Left(MalError("unbalanced token encountered: ${u}"))
+fn read_atom(atom String) Either MalStop MalValue {
+  if atom == "nil" {
+    return Right(MalNil)
+  } else if atom == "false" {
+    return Right(MalBool(False))
+  } else if atom == "true" {
+    return Right(MalBool(True))
+  } else {
+    return Right(MalSymbol(atom))
   }
 }
 
@@ -187,7 +234,7 @@ fn read_list(reader, ctor, is_closing_symbol) Either MalStop MalValue {
       Right(value) => result.append(value)
     }
   }
-  return Right(ctor(result))
+  return ctor(result)
 }
 
 fn main() {

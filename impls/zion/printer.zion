@@ -1,6 +1,6 @@
 import types {
   MalBool, MalNil, MalValue, MalInt, MalFloat, MalString, MalSymbol, MalList,
-  MalError, MalEOF, MalStop, MalVector}
+  MalKeyword, MalDict, MalError, MalEOF, MalStop, MalVector}
 
 fn pr_str(m MalValue) String => match m {
   MalInt(i) => "${i}"
@@ -8,9 +8,35 @@ fn pr_str(m MalValue) String => match m {
   MalBool(b) => b ? "true" : "false"
   MalFloat(f) => "${f}"
   MalString(s) => escape_quotes(s)
+  MalKeyword(k) => k
   MalSymbol(s) => s
   MalList(ls) => "(${" ".join(l.pr_str for l in ls)})"
   MalVector(xs) => "[${" ".join(x.pr_str for x in xs)}]"
+  MalDict(dict) => pr_str_dict(dict)
+}
+
+fn pr_str_dict_pair(pair) {
+  let (key, value) = pair
+  return "${pr_str_dict_key(key)} ${pr_str(value)}"
+}
+
+fn pr_str_dict_key(key) {
+  if key.has_prefix("k|") {
+    return "${key[2:]}"
+  } else if key.has_prefix("z|") {
+    return "${escape_quotes(key[2:])}"
+  } else if key.has_prefix("i|") {
+    return "${key[2:]}"
+  } else if key == "nil" {
+    return key
+  } else {
+    assert(False)
+    return key
+  }
+}
+
+fn pr_str_dict(dict) {
+  return "{${" ".join(pr_str_dict_pair(pair) for pair in dict)}}"
 }
 
 fn escape_quotes(s) {

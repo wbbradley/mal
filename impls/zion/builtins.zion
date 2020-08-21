@@ -1,0 +1,62 @@
+import env {Env}
+import types {MalSymbol, MalVector, MalList, MalValue, MalStop, MalError, MalNil, error}
+import itertools {take_pairs}
+
+let builtins = {
+  "def!": eval_def,
+  "let*": eval_let,
+}
+
+fn eval_def(env Env, terms [MalValue], eval) Either MalStop MalValue {
+  if terms.len != 3 {
+    return "(def! ...) requires exactly 3 arguments".error
+  }
+  if terms[1] is MalSymbol(sym) {
+    return match eval(env, terms[2]) {
+      Right(value) {
+        env[sym] = value
+        Right(value)
+      }
+      left => left
+    }
+  } else {
+    return "(def! ...) expected a symbol as the second parameter".error
+  }
+}
+
+let as_bindings = |value| => match value {
+  MalList(bindings) => Just(bindings)
+  MalVector(bindings) => Just(bindings)
+} else => Nothing
+
+fn eval_let(env Env, terms [MalValue], eval) Either MalStop MalValue {
+  if terms.len != 3 {
+    return "(let* [lhs1 rhs1 lhs2 rhs2...] expr) requires exactly 3 arguments (got ${terms})".error
+  }
+  if terms[1].as_bindings is Just(bindings) {
+    if bindings.len % 2 != 0 {
+      return "bindings list in let* must be divisible by two!".error
+    }
+
+    let new_env_dict = {}
+    let new_env = Env(new_env_dict, Just(env))
+    var i = 0
+    while i < len(bindings) {
+      if bindings[i] is MalSymbol(sym) {
+        let either_value = eval(new_env, bindings[i+1])
+        if either_value is Right(value) {
+          # bind this symbol to this evaluated expression
+          new_env_dict[sym] = value
+        } else {
+          return either_value
+        }
+      } else {
+        return "let* bindings must be symbols (got ${bindings[i]})".error
+      }
+      i += 2
+    }
+    return eval(new_env, terms[2])
+  } else {
+    return "(let* [lhs1 rhs1 lhs2 rhs2...] expr) expected a list of bindings as its second argument (got ${terms[1]})".error
+  }
+}

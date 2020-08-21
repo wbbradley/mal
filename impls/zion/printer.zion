@@ -1,6 +1,6 @@
 import types {
   MalBool, MalNil, MalValue, MalInt, MalFloat, MalString, MalSymbol, MalList,
-  MalKeyword, MalDict, MalError, MalEOF, MalStop, MalVector}
+  MalKeyword, MalDict, MalError, MalLambda, MalEOF, MalStop, MalVector}
 
 fn pr_str(m MalValue) String => match m {
   MalInt(i) => "${i}"
@@ -13,6 +13,7 @@ fn pr_str(m MalValue) String => match m {
   MalList(ls) => "(${" ".join(l.pr_str for l in ls)})"
   MalVector(xs) => "[${" ".join(x.pr_str for x in xs)}]"
   MalDict(dict) => pr_str_dict(dict)
+  MalLambda(lambda) => "#lambda"
 }
 
 fn pr_str_dict_pair(pair) {

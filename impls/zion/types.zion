@@ -9,6 +9,7 @@ data MalValue {
   MalList([MalValue])
   MalVector([MalValue])
   MalDict(Map String MalValue)
+  MalLambda(fn ([MalValue]) Either MalStop MalValue)
 }
 
 instance Str MalValue {
@@ -23,6 +24,7 @@ instance Str MalValue {
     MalList(l) => "MalList(${l})"
     MalVector(v) => "MalVector(${v})"
     MalDict(dict) => "MalDict(${dict})"
+    MalLambda(lambda) => "MalLambda(...)"
   }
 }
 
@@ -37,3 +39,5 @@ instance Str MalStop {
     MalEOF      => "EOF"
   }
 }
+
+let error = |x| => x.MalError.Left

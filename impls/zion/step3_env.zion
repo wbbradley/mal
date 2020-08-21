@@ -1,26 +1,12 @@
 import readline {readline}
-import copy {copy}
+import env {Env, symbol_not_found}
 import reader {read_str}
-import copy {Copy}
 import printer {pr_str}
 import types {
   MalList, MalError, MalStop, MalValue, MalEOF, MalInt, MalFloat, MalString,
-  MalDict, MalVector, MalSymbol, MalLambda}
+  MalNil, MalDict, MalVector, MalSymbol, MalLambda, error}
+import builtins {builtins}
 
-newtype Env = Env(Map String MalValue)
-
-instance Copy Env {
-  fn copy(env) {
-    let Env(dict) = env
-    return Env(dict.copy)
-  }
-}
-
-instance HasDefault Env {
-  fn new() => Env({})
-}
-
-let error = |x| => x.MalError.Left
 let str_combine = |x, y| => "${x}${y}".MalString.Right
 
 fn mal_add(a, b) => match a {
@@ -76,14 +62,27 @@ let base_env = Env({
   "-": MalLambda(make_builtin_2("-", mal_sub)),
   "*": MalLambda(make_builtin_2("*", mal_mul)),
   "/": MalLambda(make_builtin_2("/", mal_div)),
-})
+}, Nothing)
 
-fn _eval(env Env, x MalValue) Either MalStop MalValue => match x {
-  MalList(l) => len(l) == 0 ? Right(x) : apply_list(env, eval_list(env, l, MalList))
+fn EVAL(env Env, x MalValue) Either MalStop MalValue => match x {
+  MalList(l) {
+    if len(l) == 0 {
+      Right(x)
+    } else {
+      /* handle builtin special forms */
+      if l[0] is MalSymbol(sym) {
+        if builtins[sym] is Just(builtin) {
+          return builtin(env, l, EVAL)
+        }
+      }
+
+      apply_list(env, eval_list(env, l, MalList))
+    }
+  }
   value      => eval_ast(env, value)
 }
 
-fn _read(x String) Either MalStop MalValue => x.read_str
+fn READ(x String) Either MalStop MalValue => x.read_str
 
 fn apply_list(env, list Either MalStop MalValue) Either MalStop MalValue {
   match list {
@@ -91,31 +90,35 @@ fn apply_list(env, list Either MalStop MalValue) Either MalStop MalValue {
       if elems[0] is MalLambda(func) {
         return func(elems[1:])
       } else {
-        return "error: ${elems[0].pr_str} cannot be called as a function".error
+        return "${elems[0].pr_str} cannot be called as a function".error
       }
     }
     left => return left
   }
 }
 
-fn _print(x MalValue) String => x.pr_str
+fn PRINT(x MalValue) String => x.pr_str
 
 fn rep(env Env, x String) Either MalStop (Env, String) {
-  let form = _read(x)
+  let form = READ(x)
   match form {
     Left(error) => return Left(error)
     Right(mv) {
-      let either_evaluated = _eval(env, mv)
+      let either_evaluated = EVAL(env, mv)
       return match either_evaluated {
         Left(error) => Left(error)
-        Right(evaluated) => Right((env, _print(evaluated)))
+        Right(evaluated) => Right((env, PRINT(evaluated)))
       }
     }
   }
 }
 
 fn main() {
-  var env = base_env.copy
+  base_env.REPL
+}
+
+fn REPL(repl_env) {
+  var env = repl_env
   while "user> ".readline is Just(input) {
     match rep(env, input) {
       Left(error) => print(error)
@@ -128,20 +131,18 @@ fn main() {
 }
 
 fn lookup(env, s) {
-  let Env(dict) = env
-  return match dict[s] {
-    Just(value) => Right(value)
-    Nothing {
-      let env_str = ", ".join("${k}: ${v.pr_str}" for (k, v) in dict)
-      "symbol ${s} is undefined (current env is {${env_str}})".error
-    }
+  let either_value = env[s]
+  if either_value is Right(_) {
+    return either_value
   }
+
+  return env.symbol_not_found(s)
 }
 
 fn eval_list(env Env, xs [MalValue], ctor) Either MalStop MalValue {
   let evaluated = []
   for x in xs {
-    match _eval(env, x) {
+    match EVAL(env, x) {
       Right(value) => evaluated.append(value)
       Left(error)  => return Left(error)
     }
@@ -162,7 +163,7 @@ fn eval_ast(env Env, x MalValue) Either MalStop MalValue {
 fn eval_dict(env Env, dict Map String MalValue) {
   let new_dict
   for (key, value) in dict {
-    match _eval(env, value) {
+    match EVAL(env, value) {
       Right(value) => new_dict[key] = value
       left => return left
     }

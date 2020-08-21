@@ -168,10 +168,10 @@ fn mkdict(values) {
   for (key, value) in values.take_pairs {
     match key {
       MalKeyword(k) => dict["k|${k}"] = value
-      MalString(s) => dict["z|${s}"] = value
-      MalInt(s) => dict["i|${s}"] = value
-      MalNil => dict["nil"] = value
-      _ => return Left(MalError("Hashmaps only accept keywords, integers, and strings as keys. (Got ${key})"))
+      MalString(s)  => dict["z|${s}"] = value
+      MalInt(s)     => dict["i|${s}"] = value
+      MalNil        => dict["nil"] = value
+      _             => return Left(MalError("Hashmaps only accept keywords, integers, and strings as keys. (Got ${key})"))
     }
   }
   return Right(MalDict(dict))

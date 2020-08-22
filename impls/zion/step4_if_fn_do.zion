@@ -1,0 +1,255 @@
+import core {ns}
+import env {Env, symbol_not_found}
+import itertools {take_pairs, zip}
+import map {from_pairs}
+import printer {pr_str}
+import reader {read_str}
+import readline {readline}
+import types {
+  MalList, MalError, MalStop, MalValue, MalEOF, MalInt, MalFloat, MalString,
+  MalBool, MalNil, MalDict, MalVector, MalSymbol, MalLambda, error}
+
+fn EVAL(env Env, x MalValue) Either MalStop MalValue => match x {
+  MalList(l) {
+    if len(l) == 0 {
+      Right(x)
+    } else {
+      /* handle builtin special forms */
+      if l[0] is MalSymbol(sym) {
+        if builtins[sym] is Just(builtin) {
+          return builtin(env, l[1:])
+        }
+      }
+
+      apply_list(env, eval_list(env, l, MalList))
+    }
+  }
+  value => eval_ast(env, value)
+}
+
+fn READ(x String) Either MalStop MalValue => x.read_str
+
+fn apply_list(env, list Either MalStop MalValue) Either MalStop MalValue {
+  match list {
+    Right(MalList(elems)) {
+      if elems[0] is MalLambda(func) {
+        return func(elems[1:])
+      } else {
+        return "${elems[0].pr_str(False)} cannot be called as a function".error
+      }
+    }
+    left => return left
+  }
+}
+
+fn PRINT(x MalValue) String => x.pr_str(False)
+
+fn rep(env Env, x String) Either MalStop (Env, String) {
+  let form = READ(x)
+  match form {
+    Left(error) => return Left(error)
+    Right(mv) {
+      let either_evaluated = EVAL(env, mv)
+      return match either_evaluated {
+        Left(error) => Left(error)
+        Right(evaluated) => Right((env, PRINT(evaluated)))
+      }
+    }
+  }
+}
+
+fn main() {
+  let env = Env({}, Nothing)
+  for (symbol, value) in ns {
+    env[symbol] = value
+  }
+  REPL(env)
+}
+
+fn REPL(repl_env) {
+  var env = repl_env
+  while "user> ".readline is Just(input) {
+    match rep(env, input) {
+      Left(error) => print(error)
+      Right((new_env, mv_str)) {
+        env = new_env
+        print(mv_str)
+      }
+    }
+  }
+}
+
+fn lookup(env, s) {
+  let either_value = env[s]
+  if either_value is Right(_) {
+    return either_value
+  }
+
+  return env.symbol_not_found(s)
+}
+
+fn eval_list(env Env, xs [MalValue], ctor) Either MalStop MalValue {
+  let evaluated = []
+  for x in xs {
+    match EVAL(env, x) {
+      Right(value) => evaluated.append(value)
+      Left(error)  => return Left(error)
+    }
+  }
+  return Right(ctor(evaluated))
+}
+
+fn eval_ast(env Env, x MalValue) Either MalStop MalValue {
+  return match x {
+    MalSymbol(s) => lookup(env, s)
+    MalList(l) => eval_list(env, l, MalList)
+    MalVector(l) => eval_list(env, l, MalVector)
+    MalDict(dict) => len(dict) == 0 ? Right(x) : eval_dict(env, dict)
+    value => Right(value)
+  }
+}
+
+fn eval_dict(env Env, dict Map String MalValue) {
+  let new_dict
+  for (key, value) in dict {
+    match EVAL(env, value) {
+      Right(value) => new_dict[key] = value
+      left => return left
+    }
+  }
+  return Right(MalDict(new_dict))
+}
+
+let builtins = {
+  "def!": eval_def,
+  "let*": eval_let,
+  "do": eval_do,
+  "if": eval_if,
+  "fn*": eval_fn,
+}
+
+fn eval_def(env Env, terms [MalValue]) Either MalStop MalValue {
+  if terms.len != 2 {
+    return "(def! ...) requires exactly 2 arguments".error
+  }
+  if terms[0] is MalSymbol(sym) {
+    return match EVAL(env, terms[1]) {
+      Right(value) {
+        env[sym] = value
+        Right(value)
+      }
+      left => left
+    }
+  } else {
+    return "(def! ...) expected a symbol as the second parameter".error
+  }
+}
+
+fn as_symbol_strings(values [MalValue]) Either MalStop [String] {
+  let bindings = []
+  let seen = new Set String
+  for value in values {
+    if value is MalSymbol(binding) {
+      if binding in seen {
+        return "binding ${binding} was already seen".error
+      }
+      bindings.append(binding)
+      seen.insert(binding)
+    } else {
+      return "bindings must be symbols. (got ${value} in (${values})".error
+    }
+  }
+  return Right(bindings)
+}
+
+let as_bindings = |value| => match value {
+  MalList(bindings) => Just(bindings)
+  MalVector(bindings) => Just(bindings)
+} else => Nothing
+
+let as_symbols = |value| => match value {
+  MalList(values) => values.as_symbol_strings
+  MalVector(values) => values.as_symbol_strings
+} else => "bindings must be a list or vector (got ${value})".error
+
+fn eval_let(env Env, terms [MalValue]) Either MalStop MalValue {
+  if terms.len != 2 {
+    return "(let* [lhs1 rhs1 lhs2 rhs2...] expr) requires exactly 2 arguments (got ${terms})".error
+  }
+  return match terms[0].as_bindings {
+    Just(bindings) {
+      if bindings.len % 2 != 0 {
+        return "bindings list in let* must be divisible by two!".error
+      }
+
+      let new_env_dict = {}
+      let new_env = Env(new_env_dict, Just(env))
+      var i = 0
+      while i < len(bindings) {
+        if bindings[i] is MalSymbol(sym) {
+          let either_value = EVAL(new_env, bindings[i+1])
+          if either_value is Right(value) {
+            # bind this symbol to this evaluated expression
+            new_env_dict[sym] = value
+          } else {
+            return either_value
+          }
+        } else {
+          return "let* bindings must be symbols (got ${bindings[i]})".error
+        }
+        i += 2
+      }
+      EVAL(new_env, terms[1])
+    }
+    Nothing => "(let* [lhs1 rhs1 lhs2 rhs2...] expr) expected a list of bindings as its second argument (got ${terms[1]})".error
+  }
+}
+
+fn eval_do(env Env, terms [MalValue]) Either MalStop MalValue {
+  var i = len(terms)
+  for term in terms {
+    i -= 1
+    let either_value = EVAL(env, term)
+    if either_value is Left(_) {
+      return either_value
+    } else if i == 0 {
+      return either_value
+    }
+  }
+  return Right(MalNil)
+}
+
+fn _falsey(env, terms) {
+  if terms.len == 3 {
+    return EVAL(env, terms[2])
+  } else if terms.len == 2 {
+    return Right(MalNil)
+  } else {
+    return "bogus if statement".error
+  }
+}
+
+fn eval_if(env Env, terms [MalValue]) Either MalStop MalValue {
+  return match EVAL(env, terms[0]) {
+    Right(MalNil) => _falsey(env, terms)
+    Right(MalBool(False)) => _falsey(env, terms)
+    Right(_) => EVAL(env, terms[1])
+    left => left
+  }
+}
+
+fn eval_fn(env Env, terms [MalValue]) Either MalStop MalValue {
+  if len(terms) != 2 {
+    return "(fn* name (params...) body) requires exactly 3 arguments (got ${terms})".error
+  }
+  return match terms[0].as_symbols {
+    Right(symbols) => Right(MalLambda(|args| {
+      if len(args) != len(symbols) {
+        return "invalid number of arguments passed to (fn* (${" ".join(symbols)}) ...). got ${args}".error
+      }
+      let new_env = Env(from_pairs(zip(symbols, args)), Just(env))
+      return EVAL(new_env, terms[1])
+    }))
+    Left(error) => Left(error)
+  }
+}

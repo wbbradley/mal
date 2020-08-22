@@ -91,14 +91,14 @@ fn apply_list(env, list Either MalStop MalValue) Either MalStop MalValue {
       if elems[0] is MalLambda(func) {
         return func(elems[1:])
       } else {
-        return "error: ${elems[0].pr_str} cannot be called as a function".error
+        return "error: ${elems[0].pr_str(False)} cannot be called as a function".error
       }
     }
     left => return left
   }
 }
 
-fn _print(x MalValue) String => x.pr_str
+fn _print(x MalValue) String => x.pr_str(False)
 
 fn rep(env Env, x String) Either MalStop (Env, String) {
   let form = _read(x)
@@ -132,7 +132,7 @@ fn lookup(env, s) {
   return match dict[s] {
     Just(value) => Right(value)
     Nothing {
-      let env_str = ", ".join("${k}: ${v.pr_str}" for (k, v) in dict)
+      let env_str = ", ".join("${k}: ${v.pr_str(False)}" for (k, v) in dict)
       "symbol ${s} is undefined (current env is {${env_str}})".error
     }
   }

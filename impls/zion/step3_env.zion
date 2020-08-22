@@ -90,14 +90,14 @@ fn apply_list(env, list Either MalStop MalValue) Either MalStop MalValue {
       if elems[0] is MalLambda(func) {
         return func(elems[1:])
       } else {
-        return "${elems[0].pr_str} cannot be called as a function".error
+        return "${elems[0].pr_str(False)} cannot be called as a function".error
       }
     }
     left => return left
   }
 }
 
-fn PRINT(x MalValue) String => x.pr_str
+fn PRINT(x MalValue) String => x.pr_str(False)
 
 fn rep(env Env, x String) Either MalStop (Env, String) {
   let form = READ(x)

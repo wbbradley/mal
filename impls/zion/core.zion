@@ -1,0 +1,98 @@
+import env {Env}
+import types {
+  MalList, MalError, MalStop, MalValue, MalEOF, MalInt, MalFloat, MalString,
+  MalBool, MalNil, MalDict, MalVector, MalSymbol, MalLambda, error}
+import printer {pr_str}
+
+let str_combine = |x, y| => "${x}${y}".MalString.Right
+
+fn mal_add(a, b) => match a {
+  MalInt(x) => match b {
+    MalInt(y)       => Right(MalInt(x + y))
+    MalFloat(y)     => Right(MalFloat(float(x) + y))
+    MalString(y)    => str_combine(x, y)
+  } else => "+ is not defined for ${a} and ${b}".error
+  MalFloat(x) => match b {
+    MalInt(y)     => Right(MalFloat(x + float(y)))
+    MalFloat(y)   => Right(MalFloat(x + y))
+    MalString(y)  => str_combine(x, y)
+  } else => "+ is not defined for ${a} and ${b}".error
+  MalString(x) => match b {
+    MalString(y) => str_combine(x, y)
+    MalInt(y)    => str_combine(x, y)
+    MalFloat(y)  => str_combine(x, y)
+  } else => "+ is not defined for ${a} and ${b}".error
+} else => "+ is not defined for ${a} and ${b}".error
+
+fn mal_sub(a, b) => match (a, b) {
+  (MalInt(x), MalInt(y))       => Right(MalInt(x - y))
+  (MalInt(x), MalFloat(y))     => Right(MalFloat(float(x) - y))
+  (MalFloat(x), MalInt(y))     => Right(MalFloat(x - float(y)))
+  (MalFloat(x), MalFloat(y))   => Right(MalFloat(x - y))
+} else => "- is not defined for ${a} and ${b}".error
+
+fn mal_div(a, b) => match (a, b) {
+  (MalInt(x), MalInt(y))       => y != 0 ? Right(MalInt(x / y)) : "division by zero error".error
+  (MalInt(x), MalFloat(y))     => Right(MalFloat(float(x) / y))
+  (MalFloat(x), MalInt(y))     => y != 0 ? Right(MalFloat(x / float(y))) : "division by zero error".error
+  (MalFloat(x), MalFloat(y))   => Right(MalFloat(x / y))
+} else => "/ is not defined for ${a} and ${b}".error
+
+fn mal_mul(a, b) => match (a, b) {
+  (MalInt(x), MalInt(y))       => Right(MalInt(x * y))
+  (MalInt(x), MalFloat(y))     => Right(MalFloat(float(x) * y))
+  (MalFloat(x), MalInt(y))     => Right(MalFloat(x * float(y)))
+  (MalFloat(x), MalFloat(y))   => Right(MalFloat(x * y))
+} else => "* is not defined for ${a} and ${b}".error
+
+fn mal_prn(a) {
+  print(a.pr_str(True))
+  return MalNil.Right
+}
+
+fn make_builtin_2(name, func) => |args| {
+  if len(args) != 2 {
+    return "incorrect number of args passed to ${name}. expected 2".error
+  }
+  return func(args[0], args[1])
+}
+
+fn make_builtin_1(name, func) => |args| {
+  if len(args) != 1 {
+    return "incorrect number of args passed to ${name}. expected 1".error
+  }
+  return func(args[0])
+}
+
+let mal_is_list = make_builtin_1("list?", |x| => Right(MalBool(match x {
+  MalList(_) => True
+} else => False)))
+
+let mal_is_empty = make_builtin_1("empty?", |x| => Right(MalBool(match x {
+  MalList(l) => len(l) == 0
+  MalVector(l) => len(l) == 0
+} else => True)))
+
+let mal_count = make_builtin_1("count", |x| => match x {
+  MalList(xs) => Right(MalInt(xs.len))
+  MalVector(xs) => Right(MalInt(xs.len))
+} else => zero)
+
+let mal_eq = make_builtin_2("=", |x, y| => Right(MalBool(x == y)))
+
+let zero = Right(MalInt(0))
+
+let core_fns = {
+  "+": make_builtin_2("+", mal_add),
+  "-": make_builtin_2("-", mal_sub),
+  "*": make_builtin_2("*", mal_mul),
+  "/": make_builtin_2("/", mal_div),
+  "=": mal_eq,
+  "prn": make_builtin_1("prn", mal_prn),
+  "list": .MalList.Right,
+  "list?": mal_is_list,
+  "empty?": mal_is_empty,
+  "count": mal_count,
+}
+
+let ns = {k: MalLambda(v) for (k, v) in core_fns}

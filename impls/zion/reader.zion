@@ -3,7 +3,6 @@ import parser {
   sequence, Progress, OK, Fail, skip_while, span_concat, non_empty, many1,
   signed_int, within_quotes, skip_leading, until_one_of, choice, dot_star,
   digits, span_text, not_char}
-import printer {pr_str}
 import types {
   MalBool, MalNil, MalValue, MalInt, MalFloat, MalString, MalSymbol, MalList,
   MalKeyword, MalVector, MalDict, MalError, MalEOF, MalStop}
@@ -235,10 +234,4 @@ fn read_list(reader, ctor, is_closing_symbol) Either MalStop MalValue {
     }
   }
   return ctor(result)
-}
-
-fn main() {
-  print("\\\\")
-  print(compose(pr_str, compose(MalString, str)).fmap(quoted_string.parse_string("\"h\\\"ey\"")))
-  print(read_str("(hey this is 900 'cool nil \"this \\\"is\\\" working\" true false)"))
 }

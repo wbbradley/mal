@@ -5,7 +5,7 @@ import types {MalStop, MalValue, MalEOF}
 
 fn _read(x String) Either MalStop MalValue => x.read_str
 fn _eval(x MalValue) Either MalStop MalValue => Right(x)
-fn _print(x MalValue) String => x.pr_str
+fn _print(x MalValue) String => x.pr_str(False)
 fn rep(x String) Either MalStop String {
   let form = _read(x)
   match form {

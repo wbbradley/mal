@@ -1,3 +1,5 @@
+import reader {mkdict}
+
 data MalValue {
   MalInt(Int)
   MalNil
@@ -26,6 +28,30 @@ instance Str MalValue {
     MalDict(dict) => "MalDict(${dict})"
     MalLambda(lambda) => "MalLambda(...)"
   }
+}
+
+class ToMalValue a {
+  fn to_mal_value(a) MalValue
+}
+
+instance ToMalValue [x] {
+  fn to_mal_value(xs) => MalVector([x.to_mal_value for x in xs])
+}
+
+instance ToMalValue Int {
+  to_mal_value = MalInt
+}
+
+instance ToMalValue Float {
+  to_mal_value = MalFloat
+}
+
+instance ToMalValue String {
+  to_mal_value = MalString
+}
+
+instance ToMalValue Bool {
+  to_mal_value = MalBool
 }
 
 data MalStop {
@@ -72,46 +98,6 @@ instance Eq MalValue {
     } else => False
     MalList(x) => match b {
       MalList(y) => x == y
-    } else => False
-    MalVector(x) => match b {
-      MalVector(y) => x == y
-    } else => False
-    MalDict(x) => False # TODO: consider implementing this
-    MalLambda(x) => match b {
-      MalLambda(y) => (x as! *Char) == (y as! *Char)
-    } else => False
-  }
-}
-
-instance Ord MalValue {
-  fn <=(a, b) => match a {
-    MalInt(x) => match b {
-      MalInt(y) => x <= y
-    } else => False
-    MalNil => match b {
-      MalNil => True
-    } else => False
-    MalBool(True) => match b {
-      MalBool(True) => True
-      MalBool(False) => False
-    } else => False
-    MalBool(False) => match b {
-      MalBool(True) => True
-      MalBool(False) => True
-    } else => False
-    MalFloat(x) => match b {
-      MalFloat(y) => x <= y
-    } else => False
-    MalKeyword(x) => match b {
-      MalKeyword(y) => x <= y
-    } else => False
-    MalString(x) => match b {
-      MalString(y) => x <= y
-    } else => False
-    MalSymbol(x) => match b {
-      MalSymbol(y) => x <= y
-    } else => False
-    MalList(x) => False
     } else => False
     MalVector(x) => match b {
       MalVector(y) => x == y

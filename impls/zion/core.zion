@@ -1,7 +1,7 @@
 import env {Env}
 import types {
-  MalList, MalError, MalStop, MalValue, MalEOF, MalInt, MalFloat, MalString,
-  MalBool, MalNil, MalDict, MalVector, MalSymbol, MalLambda, error}
+  to_mal_value, MalList, MalError, MalStop, MalValue, MalEOF, MalInt, MalFloat,
+  MalString, MalBool, MalNil, MalDict, MalVector, MalSymbol, MalLambda, error}
 import printer {pr_str}
 
 let str_combine = |x, y| => "${x}${y}".MalString.Right
@@ -64,31 +64,64 @@ fn make_builtin_1(name, func) => |args| {
   return func(args[0])
 }
 
-let mal_is_list = make_builtin_1("list?", |x| => Right(MalBool(match x {
-  MalList(_) => True
-} else => False)))
+let booly = |x| => x.MalBool.Right
 
-let mal_is_empty = make_builtin_1("empty?", |x| => Right(MalBool(match x {
+let mal_is_list = make_builtin_1("list?", |x| => booly(match x {
+  MalList(_) => True
+} else => False))
+
+let mal_is_empty = make_builtin_1("empty?", |x| => booly(match x {
   MalList(l) => len(l) == 0
   MalVector(l) => len(l) == 0
-} else => True)))
+} else => True))
 
 let mal_count = make_builtin_1("count", |x| => match x {
   MalList(xs) => Right(MalInt(xs.len))
   MalVector(xs) => Right(MalInt(xs.len))
 } else => zero)
 
-let mal_eq = make_builtin_2("=", |x, y| => Right(MalBool(x == y)))
+let mal_eq = make_builtin_2("=", |x, y| => booly(x == y))
+
+let mal_not = make_builtin_1("not", |x| => booly(match x {
+  MalNil => True
+  MalBool(value) => not value
+  _ => False
+}))
+
 
 let zero = Right(MalInt(0))
+
+fn mal_binary_op(binary_op_name, int_binary_op, float_binary_op, string_binary_op) => |a, b| => match a {
+  MalInt(x) => match b {
+    MalInt(y)   => int_binary_op(x, y).to_mal_value.Right
+    MalFloat(y) => float_binary_op(float(x), y).to_mal_value.Right
+  } else => "${a} ${binary_op_name} ${b} is undefined".error
+  MalFloat(x) => match b {
+    MalInt(y)   => float_binary_op(x, float(y)).to_mal_value.Right
+    MalFloat(y) => float_binary_op(x, y).to_mal_value.Right
+  } else => "${binary_op_name} is not defined for ${a} and ${b}".error
+  MalString(x) => match b {
+    MalString(y) => string_binary_op(x, y).to_mal_value.Right
+  } else => "${binary_op_name} is not defined for ${a} and ${b}".error
+} else => "${binary_op_name} is not defined for ${a} and ${b}".error
+
+fn mal_pr_str(args) {
+
+}
 
 let core_fns = {
   "+": make_builtin_2("+", mal_add),
   "-": make_builtin_2("-", mal_sub),
   "*": make_builtin_2("*", mal_mul),
   "/": make_builtin_2("/", mal_div),
+  ">": make_builtin_2(">", mal_binary_op(">", (>), (>), (>))),
+  "<": make_builtin_2("<", mal_binary_op("<", (<), (<), (<))),
+  ">=": make_builtin_2(">=", mal_binary_op(">=", (>=), (>=), (>=))),
+  "<=": make_builtin_2("<=", mal_binary_op("<=", (<=), (<=), (<=))),
   "=": mal_eq,
+  "not": mal_not,
   "prn": make_builtin_1("prn", mal_prn),
+  # "pr-str": mal_pr_str,
   "list": .MalList.Right,
   "list?": mal_is_list,
   "empty?": mal_is_empty,

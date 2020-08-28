@@ -45,11 +45,6 @@ fn mal_mul(a, b) => match (a, b) {
   (MalFloat(x), MalFloat(y))   => Right(MalFloat(x * y))
 } else => "* is not defined for ${a} and ${b}".error
 
-fn mal_prn(a) {
-  print(a.pr_str(True))
-  return MalNil.Right
-}
-
 fn make_builtin_2(name, func) => |args| {
   if len(args) != 2 {
     return "incorrect number of args passed to ${name}. expected 2".error
@@ -106,7 +101,27 @@ fn mal_binary_op(binary_op_name, int_binary_op, float_binary_op, string_binary_o
 } else => "${binary_op_name} is not defined for ${a} and ${b}".error
 
 fn mal_pr_str(args) {
+  return " "
+    .join(arg.pr_str(False) for arg in args)
+    .to_mal_value
+    .Right
+}
 
+fn mal_str(args) {
+  return ""
+    .join(arg.pr_str(True) for arg in args)
+    .to_mal_value
+    .Right
+}
+
+fn mal_prn(args) {
+  print(" ".join(arg.pr_str(False) for arg in args))
+  return MalNil.Right
+}
+
+fn mal_println(args) {
+  print(" ".join(arg.pr_str(True) for arg in args))
+  return MalNil.Right
 }
 
 let core_fns = {
@@ -120,8 +135,10 @@ let core_fns = {
   "<=": make_builtin_2("<=", mal_binary_op("<=", (<=), (<=), (<=))),
   "=": mal_eq,
   "not": mal_not,
-  "prn": make_builtin_1("prn", mal_prn),
-  # "pr-str": mal_pr_str,
+  "prn": mal_prn,
+  "println": mal_println,
+  "pr-str": mal_pr_str,
+  "str": mal_str,
   "list": .MalList.Right,
   "list?": mal_is_list,
   "empty?": mal_is_empty,

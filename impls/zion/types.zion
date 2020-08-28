@@ -98,8 +98,10 @@ instance Eq MalValue {
     } else => False
     MalList(x) => match b {
       MalList(y) => x == y
+      MalVector(y) => x == y
     } else => False
     MalVector(x) => match b {
+      MalList(y) => x == y
       MalVector(y) => x == y
     } else => False
     MalDict(x) => False # TODO: consider implementing this

@@ -6,8 +6,8 @@ import printer {pr_str}
 import reader {read_str}
 import readline {readline}
 import types {
-  MalList, MalError, MalStop, MalValue, MalEOF, MalInt, MalFloat, MalString,
-  MalBool, MalNil, MalDict, MalVector, MalSymbol, MalLambda, error}
+  to_mal_value, MalList, MalError, MalStop, MalValue, MalEOF, MalInt, MalFloat,
+  MalString, MalBool, MalNil, MalDict, MalVector, MalSymbol, MalLambda, error}
 
 fn EVAL(env Env, x MalValue) Either MalStop MalValue => match x {
   MalList(l) {
@@ -244,12 +244,42 @@ fn eval_fn(env Env, terms [MalValue]) Either MalStop MalValue {
   }
   return match terms[0].as_symbols {
     Right(symbols) => Right(MalLambda(|args| {
-      if len(args) != len(symbols) {
-        return "invalid number of arguments passed to (fn* (${" ".join(symbols)}) ...). got ${args}".error
+      return match arg_zip(symbols, args) {
+        Right(binding_pairs) {
+          let new_env = Env(from_pairs(binding_pairs), Just(env))
+          EVAL(new_env, terms[1])
+        }
+        Left(error) => Left(error)
       }
-      let new_env = Env(from_pairs(zip(symbols, args)), Just(env))
-      return EVAL(new_env, terms[1])
     }))
     Left(error) => Left(error)
   }
+}
+
+fn arg_zip(symbols_, args_) Either MalStop [(String, MalValue)] {
+  let symbols = vector(symbols_)
+  let args = vector(args_)
+
+  let pairs = []
+  let sym_iter = iter(symbols)
+  let args_iter = iter(args)
+  while sym_iter() is Just(binding) {
+    if binding == "&" {
+      # variadic arguments?
+      if sym_iter() is Just(args_binding) {
+        if sym_iter() is Just(anything) {
+          return "encountered unexpected \"${anything}\" token after variadic parameter binding".error
+        } else {
+          pairs.append((args_binding, MalList(vector(args_iter))))
+        }
+      } else {
+        return "missing a symbol to bind parameters".error
+      }
+    } else if args_iter() is Just(arg) {
+      pairs.append((binding, arg))
+    } else {
+      return "function call expected more args".error
+    }
+  }
+  return Right(pairs)
 }

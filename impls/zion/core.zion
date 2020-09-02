@@ -1,4 +1,4 @@
-import env {Env}
+import env {Env, empty_env}
 import types {
   to_mal_value, MalList, MalError, MalStop, MalValue, MalEOF, MalInt, MalFloat,
   MalString, MalBool, MalNil, MalDict, MalVector, MalSymbol, MalLambda, error}
@@ -124,7 +124,14 @@ fn mal_println(args) {
   return MalNil.Right
 }
 
+fn empty_env_tuplify(x MalValue) (Env, MalValue) => (empty_env, x)
+
 let core_fns = {
+  key: |args| => fmap(empty_env_tuplify, f(args))
+  for (key, f) in core_raw_fns
+} as Map String fn (a) Either MalStop (Env, MalValue)
+
+let core_raw_fns = {
   "+": make_builtin_2("+", mal_add),
   "-": make_builtin_2("-", mal_sub),
   "*": make_builtin_2("*", mal_mul),
@@ -143,6 +150,6 @@ let core_fns = {
   "list?": mal_is_list,
   "empty?": mal_is_empty,
   "count": mal_count,
-}
+} as Map String fn ([MalValue]) Either MalStop MalValue
 
 let ns = {k: MalLambda(v) for (k, v) in core_fns}

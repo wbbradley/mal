@@ -1,3 +1,5 @@
+import list {Cons, Nil, List}
+import vector {from_vector}
 import parser {
   all_of_input, parse_string, many, Span, ParseState, lift, char, text, const,
   sequence, Progress, OK, Fail, skip_while, span_concat, non_empty, many1,
@@ -5,7 +7,8 @@ import parser {
   digits, span_text, not_char}
 import types {
   MalBool, MalNil, MalValue, MalInt, MalFloat, MalString, MalSymbol, MalList,
-  MalKeyword, MalVector, MalDict, MalError, MalEOF, MalStop}
+  MalKeyword, MalVector, MalDict, MalError, MalEOF, MalStop, mal_nil, mal_true,
+  mal_false, final, error, Continuation, Final, Error}
 import itertools {take_pairs}
 
 data Token {
@@ -66,7 +69,7 @@ fn skip_space_after(parser) {
   }
 }
 
-let comment_eol = lift(.span_concat.str.TComment, sequence([char(';'), dot_star]))
+let comment_eol = lift(.span_concat.str.TComment, sequence([char(';'), until_one_of("\n")]))
 let quasi_at = lift(const(TQuasiAt), text("~@", False /*skip_leading_space*/))
 let with_meta = lift(const(TWithMeta), text("^", False /*skip_leading_space*/))
 let deref = lift(const(TDeref), text("@", False /*skip_leading_space*/))
@@ -119,11 +122,11 @@ fn peek(r) Maybe Token {
   }
 }
 
-fn read_str(s String) Either MalStop MalValue {
+fn read_str(s String) Continuation {
   if tokenizer.parse_string(s) is Just(tokens) {
     return read_form_from_tokens(tokens)
   } else {
-    return Left(MalError("Could not find any tokens."))
+    return "Could not find any tokens.".error
   }
 }
 
@@ -142,26 +145,26 @@ fn is_token(reader, symbol) Bool {
   return False
 }
 
-let is_rparen = |r| => r.is_token(')')
-let is_rsquare = |r| => r.is_token(']')
-let is_rcurly = |r| => r.is_token('}')
+let is_rparen = .is_token(')')
+let is_rsquare = .is_token(']')
+let is_rcurly = .is_token('}')
 
 fn read_quoted(reader, kind) => match reader.read_form {
-  Right(form)   => Right(MalList([MalSymbol(kind), form]))
-  error@Left(_) => error
+  Final(form) => MalList(Cons(MalSymbol(kind), Cons(form, Nil))).final
+  other       => other
 }
 
 fn read_with_meta(reader) => match reader.read_form {
-  Right(meta_data) => match reader.read_form {
-    Right(form) => Right(MalList([MalSymbol("with-meta"), form, meta_data]))
-    left => left
+  Final(meta_data) => match reader.read_form {
+    Final(form) => MalList(Cons(MalSymbol("with-meta"), Cons(form, Cons(meta_data, Nil)))).final
+    other => other
   }
-  left => left
+  other => other
 }
 
 fn mkdict(values) {
   if len(values) % 2 != 0 {
-    return Left(MalError("Found an odd number of atoms in a hashmap!"))
+    return "Found an odd number of atoms in a hashmap!".error
   }
   let dict = {}
   for (key, value) in values.take_pairs {
@@ -170,37 +173,37 @@ fn mkdict(values) {
       MalString(s)  => dict["z|${s}"] = value
       MalInt(s)     => dict["i|${s}"] = value
       MalNil        => dict["nil"] = value
-      _             => return Left(MalError("Hashmaps only accept keywords, integers, and strings as keys. (Got ${key})"))
+      _             => return "Hashmaps only accept keywords, integers, and strings as keys. (Got ${key})".error
     }
   }
-  return Right(MalDict(dict))
+  return MalDict(dict).final
 }
 
-fn read_form(reader) Either MalStop MalValue { 
+fn read_form(reader) Continuation { 
   while reader.next is Just(token) {
     if token is TComment(_) {
       continue
     }
     return match token {
-      TInteger(i)      => MalInt(i).Right
-      TKeyword(kwd)    => MalKeyword(":${kwd}").Right
+      TInteger(i)      => MalInt(i).final
+      TKeyword(kwd)    => MalKeyword(":${kwd}").final
       TDeref           => reader.read_quoted("deref")
       TQuasiAt         => reader.read_quoted("splice-unquote")
       TWithMeta        => reader.read_with_meta
-      TQuote(s)        => Right(MalString(s))
-      TSpecial('(')    => reader.read_list(.MalList.Right, is_rparen)
-      TSpecial('[')    => reader.read_list(.MalVector.Right, is_rsquare)
+      TQuote(s)        => MalString(s).final
+      TSpecial('(')    => reader.read_list(.from_vector.MalList.Final, is_rparen)
+      TSpecial('[')    => reader.read_list(.MalVector.Final, is_rsquare)
       TSpecial('\'')   => reader.read_quoted("quote")
       TSpecial('`')    => reader.read_quoted("quasiquote")
       TSpecial('{')    => reader.read_list(mkdict, is_rcurly)
       TSpecial('~')    => reader.read_quoted("unquote")
-      TSpecial(sp)     => Left(MalError("Unrecognized special token: ${sp}"))
-      TUnbalanced(u)   => Left(MalError("unbalanced token encountered: ${u}"))
-      TComment(_)      => Left(MalError("Not reached"))
+      TSpecial(sp)     => "Unrecognized special token: ${sp}".error
+      TUnbalanced(u)   => "unbalanced token encountered: ${u}".error
+      TComment(_)      => "Not reached".error
       TNonSpecial(sym) => read_atom(sym)
     }
   }
-  return Left(MalError("end of input encountered"))
+  return "end of input encountered".error
 }
 
 fn unescape_quoted_span(span Span) String {
@@ -210,27 +213,25 @@ fn unescape_quoted_span(span Span) String {
   return s[1:len(s)-1].replace("\\\\", "\\").replace("\\\"", "\"")
 }
 
-fn read_atom(atom String) Either MalStop MalValue {
+fn read_atom(atom String) Continuation {
   if atom == "nil" {
-    return Right(MalNil)
+    return mal_nil
   } else if atom == "false" {
-    return Right(MalBool(False))
+    return mal_false
   } else if atom == "true" {
-    return Right(MalBool(True))
+    return mal_true
   } else {
-    return Right(MalSymbol(atom))
+    return MalSymbol(atom).final
   }
 }
 
-fn read_list(reader, ctor, is_closing_symbol) Either MalStop MalValue {
+fn read_list(reader, ctor, is_closing_symbol) Continuation {
   let result = []
   while not is_closing_symbol(reader) {
     match reader.read_form {
-      Left(MalEOF) {
-        return Left(MalError("Premature end of input while reading list."))
-      }
-      l@Left(_) => return l
-      Right(value) => result.append(value)
+      Final(value) => result.append(value)
+      Error(MalEOF) => return "Premature end of input while reading list.".error
+      otherwise => return otherwise
     }
   }
   return ctor(result)

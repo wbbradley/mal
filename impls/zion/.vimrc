@@ -1,1 +1,1 @@
-set makeprg=zion\ build\ step4_if_fn_do
+set makeprg=zion\ build\ step7_quote

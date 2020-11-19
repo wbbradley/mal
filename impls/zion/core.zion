@@ -1,20 +1,27 @@
 import env {Env, empty_env}
+import list {List, Cons, Nil}
+import vector {from_vector}
 import types {
-  to_mal_value, MalList, MalError, MalStop, MalValue, MalEOF, MalInt, MalFloat,
-  MalString, MalBool, MalNil, MalDict, MalVector, MalSymbol, MalLambda, error}
+  Continuation, Continue, Error, Final, final,
+  to_mal_value, MalAtom, MalList, MalError, MalStop, MalValue, MalEOF, MalInt,
+  MalFloat, MalString, MalBool, MalNil, MalDict, MalVector, MalSymbol,
+  MalBuiltin, MalLambda, error}
 import printer {pr_str}
+import reader {read_str}
+import sys {file_size}
+import math {<>}
 
-let str_combine = |x, y| => "${x}${y}".MalString.Right
+let str_combine = |x, y| => "${x}${y}".MalString.Final
 
 fn mal_add(a, b) => match a {
   MalInt(x) => match b {
-    MalInt(y)       => Right(MalInt(x + y))
-    MalFloat(y)     => Right(MalFloat(float(x) + y))
+    MalInt(y)       => Final(MalInt(x + y))
+    MalFloat(y)     => Final(MalFloat(float(x) + y))
     MalString(y)    => str_combine(x, y)
   } else => "+ is not defined for ${a} and ${b}".error
   MalFloat(x) => match b {
-    MalInt(y)     => Right(MalFloat(x + float(y)))
-    MalFloat(y)   => Right(MalFloat(x + y))
+    MalInt(y)     => Final(MalFloat(x + float(y)))
+    MalFloat(y)   => Final(MalFloat(x + y))
     MalString(y)  => str_combine(x, y)
   } else => "+ is not defined for ${a} and ${b}".error
   MalString(x) => match b {
@@ -25,45 +32,43 @@ fn mal_add(a, b) => match a {
 } else => "+ is not defined for ${a} and ${b}".error
 
 fn mal_sub(a, b) => match (a, b) {
-  (MalInt(x), MalInt(y))       => Right(MalInt(x - y))
-  (MalInt(x), MalFloat(y))     => Right(MalFloat(float(x) - y))
-  (MalFloat(x), MalInt(y))     => Right(MalFloat(x - float(y)))
-  (MalFloat(x), MalFloat(y))   => Right(MalFloat(x - y))
+  (MalInt(x), MalInt(y))       => Final(MalInt(x - y))
+  (MalInt(x), MalFloat(y))     => Final(MalFloat(float(x) - y))
+  (MalFloat(x), MalInt(y))     => Final(MalFloat(x - float(y)))
+  (MalFloat(x), MalFloat(y))   => Final(MalFloat(x - y))
 } else => "- is not defined for ${a} and ${b}".error
 
 fn mal_div(a, b) => match (a, b) {
-  (MalInt(x), MalInt(y))       => y != 0 ? Right(MalInt(x / y)) : "division by zero error".error
-  (MalInt(x), MalFloat(y))     => Right(MalFloat(float(x) / y))
-  (MalFloat(x), MalInt(y))     => y != 0 ? Right(MalFloat(x / float(y))) : "division by zero error".error
-  (MalFloat(x), MalFloat(y))   => Right(MalFloat(x / y))
+  (MalInt(x), MalInt(y))       => y != 0 ? Final(MalInt(x / y)) : "division by zero error".error
+  (MalInt(x), MalFloat(y))     => Final(MalFloat(float(x) / y))
+  (MalFloat(x), MalInt(y))     => y != 0 ? Final(MalFloat(x / float(y))) : "division by zero error".error
+  (MalFloat(x), MalFloat(y))   => Final(MalFloat(x / y))
 } else => "/ is not defined for ${a} and ${b}".error
 
 fn mal_mul(a, b) => match (a, b) {
-  (MalInt(x), MalInt(y))       => Right(MalInt(x * y))
-  (MalInt(x), MalFloat(y))     => Right(MalFloat(float(x) * y))
-  (MalFloat(x), MalInt(y))     => Right(MalFloat(x * float(y)))
-  (MalFloat(x), MalFloat(y))   => Right(MalFloat(x * y))
+  (MalInt(x), MalInt(y))       => Final(MalInt(x * y))
+  (MalInt(x), MalFloat(y))     => Final(MalFloat(float(x) * y))
+  (MalFloat(x), MalInt(y))     => Final(MalFloat(x * float(y)))
+  (MalFloat(x), MalFloat(y))   => Final(MalFloat(x * y))
 } else => "* is not defined for ${a} and ${b}".error
 
-fn make_builtin_2(name, func) => |args| {
-  if len(args) != 2 {
-    return "incorrect number of args passed to ${name}. expected 2".error
-  }
-  return func(args[0], args[1])
+fn make_builtin_2(name, func) => |args| => match args {
+  Cons(a, Cons(b, Nil)) => func(a, b)
+  _ => "incorrect number of args passed to ${name}. expected 2".error
 }
 
-fn make_builtin_1(name, func) => |args| {
-  if len(args) != 1 {
-    return "incorrect number of args passed to ${name}. expected 1".error
-  }
-  return func(args[0])
+fn make_builtin_1(name, func) => |args| => match args {
+  Cons(a, Nil) => func(a)
+  _ => "incorrect number of args passed to ${name}. expected 1".error
 }
 
-let booly = |x| => x.MalBool.Right
+let booly = |x| => x ? mal_true : mal_false
+let mal_true = True.MalBool.Final
+let mal_false = False.MalBool.Final
 
-let mal_is_list = make_builtin_1("list?", |x| => booly(match x {
-  MalList(_) => True
-} else => False))
+let mal_is_list = make_builtin_1("list?", |x| => match x {
+  MalList(_) => mal_true
+} else => mal_false)
 
 let mal_is_empty = make_builtin_1("empty?", |x| => booly(match x {
   MalList(l) => len(l) == 0
@@ -71,8 +76,8 @@ let mal_is_empty = make_builtin_1("empty?", |x| => booly(match x {
 } else => True))
 
 let mal_count = make_builtin_1("count", |x| => match x {
-  MalList(xs) => Right(MalInt(xs.len))
-  MalVector(xs) => Right(MalInt(xs.len))
+  MalList(xs) => Final(MalInt(xs.len))
+  MalVector(xs) => Final(MalInt(xs.len))
 } else => zero)
 
 let mal_eq = make_builtin_2("=", |x, y| => booly(x == y))
@@ -84,19 +89,19 @@ let mal_not = make_builtin_1("not", |x| => booly(match x {
 }))
 
 
-let zero = Right(MalInt(0))
+let zero = Final(MalInt(0))
 
 fn mal_binary_op(binary_op_name, int_binary_op, float_binary_op, string_binary_op) => |a, b| => match a {
   MalInt(x) => match b {
-    MalInt(y)   => int_binary_op(x, y).to_mal_value.Right
-    MalFloat(y) => float_binary_op(float(x), y).to_mal_value.Right
+    MalInt(y)   => int_binary_op(x, y).to_mal_value.Final
+    MalFloat(y) => float_binary_op(float(x), y).to_mal_value.Final
   } else => "${a} ${binary_op_name} ${b} is undefined".error
   MalFloat(x) => match b {
-    MalInt(y)   => float_binary_op(x, float(y)).to_mal_value.Right
-    MalFloat(y) => float_binary_op(x, y).to_mal_value.Right
+    MalInt(y)   => float_binary_op(x, float(y)).to_mal_value.Final
+    MalFloat(y) => float_binary_op(x, y).to_mal_value.Final
   } else => "${binary_op_name} is not defined for ${a} and ${b}".error
   MalString(x) => match b {
-    MalString(y) => string_binary_op(x, y).to_mal_value.Right
+    MalString(y) => string_binary_op(x, y).to_mal_value.Final
   } else => "${binary_op_name} is not defined for ${a} and ${b}".error
 } else => "${binary_op_name} is not defined for ${a} and ${b}".error
 
@@ -104,32 +109,105 @@ fn mal_pr_str(args) {
   return " "
     .join(arg.pr_str(False) for arg in args)
     .to_mal_value
-    .Right
+    .Final
 }
 
 fn mal_str(args) {
   return ""
     .join(arg.pr_str(True) for arg in args)
     .to_mal_value
-    .Right
+    .Final
 }
 
 fn mal_prn(args) {
   print(" ".join(arg.pr_str(False) for arg in args))
-  return MalNil.Right
+  return MalNil.Final
 }
 
 fn mal_println(args) {
   print(" ".join(arg.pr_str(True) for arg in args))
-  return MalNil.Right
+  return MalNil.Final
 }
 
-fn empty_env_tuplify(x MalValue) (Env, MalValue) => (empty_env, x)
+fn mal_read_string(input) {
+  if input is MalString(value) {
+    return read_str(value)
+  } else {
+    return "read-string only accepts strings. it was called on ${input}".error
+  }
+}
 
-let core_fns = {
-  key: |args| => fmap(empty_env_tuplify, f(args))
+fn mal_slurp(filename MalValue) {
+  if filename is MalString(filename) {
+    with let fd = filename.open {
+      if file_size(fd) is Just(nbytes) {
+        let bytes = alloc(nbytes+1)
+        return match read(fd, bytes, nbytes) {
+          Left(errno) => "failed to read from ${filename}. ${errno}".error
+          Right(_) {
+            bytes[nbytes] = '\0'
+            Final(MalString(String(bytes, nbytes)))
+          }
+        }
+      } else {
+        return "failed to get size for ${filename}".error
+      }
+    } else {
+      return "failed to open ${filename}".error
+    }
+  } else {
+    return "(slurp ${filename}) is not supported".error
+  }
+}
+
+fn mal_atom(term) {
+  return Final(MalAtom(Ref(term)))
+}
+
+fn mal_is_atom(term) => match term {
+  MalAtom(_) => mal_true
+  _          => mal_false
+}
+
+fn mal_atom_reset(atom, value) => match atom {
+  MalAtom(var old_value) {
+    old_value = value
+    Final(value)
+  }
+  _ => "cannot call reset! on a non-atom (reset! ${atom.pr_str(False)} ${value.pr_str(False)})".error
+}
+
+fn mal_deref_atom(term) => match term {
+  MalAtom(var value) => Final(value)
+  _ => "cannot deref ${term.pr_str(False)}".error
+}
+
+let ns = {
+  key: MalBuiltin(key, f)
   for (key, f) in core_raw_fns
-} as Map String fn (a) Either MalStop (Env, MalValue)
+}
+
+fn mal_cons(car, cdr) {
+  if cdr is MalList(xs) {
+    return Cons(car, xs).MalList.final
+  } else {
+    return "second param to cons must be a list (got ${cdr.pr_str(False)})".error
+  }
+}
+
+fn mal_concat(lists List MalValue) Continuation {
+  let h = []
+  for l in lists {
+    if l is MalList(entries) {
+      for entry in entries {
+        h.append(entry)
+      }
+    } else {
+      return "encountered a non-list element in call to concat (${" ".join(l.pr_str(False) for l in lists)})".error
+    }
+  }
+  return MalList(h.from_vector).final
+}
 
 let core_raw_fns = {
   "+": make_builtin_2("+", mal_add),
@@ -146,10 +224,16 @@ let core_raw_fns = {
   "println": mal_println,
   "pr-str": mal_pr_str,
   "str": mal_str,
-  "list": .MalList.Right,
+  "atom": make_builtin_1("atom", mal_atom),
+  "deref": make_builtin_1("deref", mal_deref_atom),
+  "atom?": make_builtin_1("atom?", mal_is_atom),
+  "reset!": make_builtin_2("reset!", mal_atom_reset),
+  "slurp": make_builtin_1("slurp", mal_slurp),
+  "list": .MalList.Final,
   "list?": mal_is_list,
   "empty?": mal_is_empty,
   "count": mal_count,
-} as Map String fn ([MalValue]) Either MalStop MalValue
-
-let ns = {k: MalLambda(v) for (k, v) in core_fns}
+  "cons": make_builtin_2("cons", mal_cons),
+  "concat": mal_concat,
+  "read-string": make_builtin_1("read-string", mal_read_string),
+} as Map String fn (List MalValue) Continuation

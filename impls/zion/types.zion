@@ -1,5 +1,36 @@
+import list {List}
 import reader {mkdict}
 import env {Env}
+
+class Errorable a {
+  fn error(String) a
+}
+
+class Finalable a {
+  fn final(MalValue) a
+}
+
+data Continuation {
+  Continue(Env, MalValue)
+  Final(MalValue)
+  Error(MalStop)
+}
+
+instance Errorable Continuation {
+  error = .MalError.Error
+}
+
+instance Finalable Continuation {
+  final = Final
+}
+
+instance Finalable (Either MalStop MalValue) {
+  final = Right
+}
+
+instance Errorable (Either MalStop a) {
+  error = .MalError.Left
+}
 
 data MalValue {
   MalInt(Int)
@@ -9,10 +40,12 @@ data MalValue {
   MalKeyword(String)
   MalString(String)
   MalSymbol(String)
-  MalList([MalValue])
+  MalList(List MalValue)
   MalVector([MalValue])
   MalDict(Map String MalValue)
-  MalLambda(fn ([MalValue]) Either MalStop (Env, MalValue))
+  MalBuiltin(String, fn (List MalValue) Continuation)
+  MalLambda(MalValue, [String], Env, fn (List MalValue) Continuation)
+  MalAtom(var MalValue)
 }
 
 instance Str MalValue {
@@ -27,7 +60,9 @@ instance Str MalValue {
     MalList(l) => "MalList(${l})"
     MalVector(v) => "MalVector(${v})"
     MalDict(dict) => "MalDict(${dict})"
-    MalLambda(lambda) => "MalLambda(...)"
+    MalBuiltin(name, builtin) => "MalBuiltin(${name}, ...)"
+    MalLambda(ast, params, env, func) => "MalLambda(${ast}, ${params}, ${env}, ...)"
+    MalAtom(var value) => "MalAtom(${value})"
   }
 }
 
@@ -67,7 +102,9 @@ instance Str MalStop {
   }
 }
 
-let error = |x| => x.MalError.Left
+let mal_nil = MalNil.Final
+let mal_true = True.MalBool.Final
+let mal_false = False.MalBool.Final
 
 instance Eq MalValue {
   fn ==(a, b) => match a {
@@ -106,8 +143,8 @@ instance Eq MalValue {
       MalVector(y) => x == y
     } else => False
     MalDict(x) => False # TODO: consider implementing this
-    MalLambda(x) => match b {
-      MalLambda(y) => (x as! *Char) == (y as! *Char)
+    MalBuiltin(x_name, _) => match b {
+      MalBuiltin(y_name, _) => x_name == y_name
     } else => False
-  }
+  } else => False
 }
